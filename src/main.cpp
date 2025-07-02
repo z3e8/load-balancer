@@ -42,6 +42,14 @@ int main() {
         }
 
         std::cout << "Client connected from " << inet_ntoa(client_addr.sin_addr) << std::endl;
+        
+        char buffer[4096] = {0};
+        int bytes_read = read(client_fd, buffer, 4096);
+        if (bytes_read > 0) {
+            std::cout << "HTTP Request:" << std::endl;
+            std::cout << buffer << std::endl;
+        }
+        
         close(client_fd);
     }
 
