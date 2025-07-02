@@ -4,6 +4,13 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstring>
+#include <string>
+#include <sstream>
+
+struct HttpRequest {
+    std::string method;
+    std::string path;
+};
 
 int main() {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -46,8 +53,16 @@ int main() {
         char buffer[4096] = {0};
         int bytes_read = read(client_fd, buffer, 4096);
         if (bytes_read > 0) {
-            std::cout << "HTTP Request:" << std::endl;
-            std::cout << buffer << std::endl;
+            std::string request_str(buffer);
+            std::istringstream iss(request_str);
+            std::string first_line;
+            std::getline(iss, first_line);
+            
+            HttpRequest req;
+            std::istringstream first_line_stream(first_line);
+            first_line_stream >> req.method >> req.path;
+            
+            std::cout << "Method: " << req.method << ", Path: " << req.path << std::endl;
         }
         
         close(client_fd);
