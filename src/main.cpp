@@ -6,10 +6,12 @@
 #include <cstring>
 #include <string>
 #include <sstream>
+#include <unordered_map>
 
 struct HttpRequest {
     std::string method;
     std::string path;
+    std::unordered_map<std::string, std::string> headers;
 };
 
 int main() {
@@ -62,7 +64,23 @@ int main() {
             std::istringstream first_line_stream(first_line);
             first_line_stream >> req.method >> req.path;
             
+            std::string header_line;
+            while (std::getline(iss, header_line) && header_line != "\r" && !header_line.empty()) {
+                size_t colon_pos = header_line.find(':');
+                if (colon_pos != std::string::npos) {
+                    std::string key = header_line.substr(0, colon_pos);
+                    std::string value = header_line.substr(colon_pos + 1);
+                    while (!value.empty() && (value[0] == ' ' || value[0] == '\r')) {
+                        value.erase(0, 1);
+                    }
+                    req.headers[key] = value;
+                }
+            }
+            
             std::cout << "Method: " << req.method << ", Path: " << req.path << std::endl;
+            for (const auto& h : req.headers) {
+                std::cout << "Header: " << h.first << " = " << h.second << std::endl;
+            }
         }
         
         close(client_fd);
