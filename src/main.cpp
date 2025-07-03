@@ -7,11 +7,17 @@
 #include <string>
 #include <sstream>
 #include <unordered_map>
+#include <vector>
 
 struct HttpRequest {
     std::string method;
     std::string path;
     std::unordered_map<std::string, std::string> headers;
+};
+
+struct Backend {
+    std::string host;
+    int port;
 };
 
 int main() {
@@ -39,7 +45,17 @@ int main() {
         return 1;
     }
 
+    std::vector<Backend> backends;
+    backends.push_back({"localhost", 8001});
+    backends.push_back({"localhost", 8002});
+    backends.push_back({"localhost", 8003});
+
     std::cout << "Server listening on port 8080" << std::endl;
+    std::cout << "Backends: ";
+    for (const auto& b : backends) {
+        std::cout << b.host << ":" << b.port << " ";
+    }
+    std::cout << std::endl;
 
     while (true) {
         struct sockaddr_in client_addr;
