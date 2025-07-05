@@ -57,6 +57,8 @@ int main() {
     }
     std::cout << std::endl;
 
+    int round_robin_counter = 0;
+
     while (true) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
@@ -97,6 +99,10 @@ int main() {
             for (const auto& h : req.headers) {
                 std::cout << "Header: " << h.first << " = " << h.second << std::endl;
             }
+
+            Backend selected = backends[round_robin_counter % backends.size()];
+            round_robin_counter++;
+            std::cout << "Selected backend: " << selected.host << ":" << selected.port << std::endl;
         }
         
         close(client_fd);
