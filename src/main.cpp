@@ -8,6 +8,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <vector>
+#include <netdb.h>
 
 struct HttpRequest {
     std::string method;
@@ -103,6 +104,36 @@ int main() {
             Backend selected = backends[round_robin_counter % backends.size()];
             round_robin_counter++;
             std::cout << "Selected backend: " << selected.host << ":" << selected.port << std::endl;
+
+            int backend_fd = socket(AF_INET, SOCK_STREAM, 0);
+            if (backend_fd < 0) {
+                std::cerr << "Failed to create backend socket" << std::endl;
+                close(client_fd);
+                continue;
+            }
+
+            struct hostent *server = gethostbyname(selected.host.c_str());
+            if (server == nullptr) {
+                std::cerr << "Failed to resolve backend host" << std::endl;
+                close(backend_fd);
+                close(client_fd);
+                continue;
+            }
+
+            struct sockaddr_in backend_addr;
+            backend_addr.sin_family = AF_INET;
+            backend_addr.sin_port = htons(selected.port);
+            memcpy(&backend_addr.sin_addr.s_addr, server->h_addr, server->h_length);
+
+            if (connect(backend_fd, (struct sockaddr *)&backend_addr, sizeof(backend_addr)) < 0) {
+                std::cerr << "Failed to connect to backend" << std::endl;
+                close(backend_fd);
+                close(client_fd);
+                continue;
+            }
+
+            send(backend_fd, buffer, bytes_read, 0);
+            close(backend_fd);
         }
         
         close(client_fd);
