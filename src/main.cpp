@@ -133,6 +133,14 @@ int main() {
             }
 
             send(backend_fd, buffer, bytes_read, 0);
+
+            char response_buffer[4096] = {0};
+            int response_bytes = read(backend_fd, response_buffer, 4096);
+            while (response_bytes > 0) {
+                send(client_fd, response_buffer, response_bytes, 0);
+                response_bytes = read(backend_fd, response_buffer, 4096);
+            }
+
             close(backend_fd);
         }
         
