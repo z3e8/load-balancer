@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <vector>
 #include <netdb.h>
+#include <ctime>
+#include <iomanip>
 
 struct HttpRequest {
     std::string method;
@@ -69,8 +71,6 @@ int main() {
             continue;
         }
 
-        std::cout << "Client connected from " << inet_ntoa(client_addr.sin_addr) << std::endl;
-        
         char buffer[4096] = {0};
         int bytes_read = read(client_fd, buffer, 4096);
         if (bytes_read > 0) {
@@ -95,15 +95,16 @@ int main() {
                     req.headers[key] = value;
                 }
             }
-            
-            std::cout << "Method: " << req.method << ", Path: " << req.path << std::endl;
-            for (const auto& h : req.headers) {
-                std::cout << "Header: " << h.first << " = " << h.second << std::endl;
-            }
 
             Backend selected = backends[round_robin_counter % backends.size()];
             round_robin_counter++;
-            std::cout << "Selected backend: " << selected.host << ":" << selected.port << std::endl;
+
+            std::time_t now = std::time(nullptr);
+            std::tm* timeinfo = std::localtime(&now);
+            std::cout << std::put_time(timeinfo, "%Y-%m-%d %H:%M:%S") << " "
+                      << inet_ntoa(client_addr.sin_addr) << " "
+                      << req.method << " " << req.path << " -> "
+                      << selected.host << ":" << selected.port << std::endl;
 
             int backend_fd = socket(AF_INET, SOCK_STREAM, 0);
             if (backend_fd < 0) {
