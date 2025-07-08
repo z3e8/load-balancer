@@ -96,39 +96,53 @@ int main() {
                 }
             }
 
-            Backend selected = backends[round_robin_counter % backends.size()];
-            round_robin_counter++;
+            int start_idx = round_robin_counter % backends.size();
+            int backend_fd = -1;
+            Backend selected;
+            bool connected = false;
 
-            std::time_t now = std::time(nullptr);
-            std::tm* timeinfo = std::localtime(&now);
-            std::cout << std::put_time(timeinfo, "%Y-%m-%d %H:%M:%S") << " "
-                      << inet_ntoa(client_addr.sin_addr) << " "
-                      << req.method << " " << req.path << " -> "
-                      << selected.host << ":" << selected.port << std::endl;
+            for (int i = 0; i < backends.size(); i++) {
+                int idx = (start_idx + i) % backends.size();
+                selected = backends[idx];
+                round_robin_counter++;
 
-            int backend_fd = socket(AF_INET, SOCK_STREAM, 0);
-            if (backend_fd < 0) {
-                std::cerr << "Failed to create backend socket" << std::endl;
-                close(client_fd);
-                continue;
+                std::time_t now = std::time(nullptr);
+                std::tm* timeinfo = std::localtime(&now);
+                std::cout << std::put_time(timeinfo, "%Y-%m-%d %H:%M:%S") << " "
+                          << inet_ntoa(client_addr.sin_addr) << " "
+                          << req.method << " " << req.path << " -> "
+                          << selected.host << ":" << selected.port << std::endl;
+
+                backend_fd = socket(AF_INET, SOCK_STREAM, 0);
+                if (backend_fd < 0) {
+                    std::cerr << "Failed to create backend socket for " << selected.host << ":" << selected.port << std::endl;
+                    continue;
+                }
+
+                struct hostent *server = gethostbyname(selected.host.c_str());
+                if (server == nullptr) {
+                    std::cerr << "Failed to resolve backend host " << selected.host << std::endl;
+                    close(backend_fd);
+                    continue;
+                }
+
+                struct sockaddr_in backend_addr;
+                backend_addr.sin_family = AF_INET;
+                backend_addr.sin_port = htons(selected.port);
+                memcpy(&backend_addr.sin_addr.s_addr, server->h_addr, server->h_length);
+
+                if (connect(backend_fd, (struct sockaddr *)&backend_addr, sizeof(backend_addr)) < 0) {
+                    std::cerr << "Failed to connect to backend " << selected.host << ":" << selected.port << std::endl;
+                    close(backend_fd);
+                    continue;
+                }
+
+                connected = true;
+                break;
             }
 
-            struct hostent *server = gethostbyname(selected.host.c_str());
-            if (server == nullptr) {
-                std::cerr << "Failed to resolve backend host" << std::endl;
-                close(backend_fd);
-                close(client_fd);
-                continue;
-            }
-
-            struct sockaddr_in backend_addr;
-            backend_addr.sin_family = AF_INET;
-            backend_addr.sin_port = htons(selected.port);
-            memcpy(&backend_addr.sin_addr.s_addr, server->h_addr, server->h_length);
-
-            if (connect(backend_fd, (struct sockaddr *)&backend_addr, sizeof(backend_addr)) < 0) {
-                std::cerr << "Failed to connect to backend" << std::endl;
-                close(backend_fd);
+            if (!connected) {
+                std::cerr << "All backends failed, closing client connection" << std::endl;
                 close(client_fd);
                 continue;
             }
