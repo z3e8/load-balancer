@@ -21,6 +21,7 @@ struct HttpRequest {
 struct Backend {
     std::string host;
     int port;
+    int active_connections = 0;
 };
 
 int main() {
@@ -96,7 +97,14 @@ int main() {
                 }
             }
 
-            int start_idx = round_robin_counter % backends.size();
+            int least_conn_idx = 0;
+            for (size_t i = 1; i < backends.size(); i++) {
+                if (backends[i].active_connections < backends[least_conn_idx].active_connections) {
+                    least_conn_idx = i;
+                }
+            }
+
+            int start_idx = least_conn_idx;
             int backend_fd = -1;
             Backend selected;
             bool connected = false;
@@ -104,7 +112,6 @@ int main() {
             for (int i = 0; i < backends.size(); i++) {
                 int idx = (start_idx + i) % backends.size();
                 selected = backends[idx];
-                round_robin_counter++;
 
                 std::time_t now = std::time(nullptr);
                 std::tm* timeinfo = std::localtime(&now);
@@ -138,6 +145,7 @@ int main() {
                 }
 
                 connected = true;
+                backends[idx].active_connections++;
                 break;
             }
 
@@ -157,6 +165,12 @@ int main() {
             }
 
             close(backend_fd);
+            for (auto& b : backends) {
+                if (b.host == selected.host && b.port == selected.port) {
+                    b.active_connections--;
+                    break;
+                }
+            }
         }
         
         close(client_fd);
