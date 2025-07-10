@@ -11,6 +11,8 @@
 #include <netdb.h>
 #include <ctime>
 #include <iomanip>
+#include <fstream>
+#include <algorithm>
 
 struct HttpRequest {
     std::string method;
@@ -24,7 +26,79 @@ struct Backend {
     int active_connections = 0;
 };
 
-int main() {
+std::string trim(const std::string& s) {
+    size_t start = s.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) return "";
+    size_t end = s.find_last_not_of(" \t\n\r");
+    return s.substr(start, end - start + 1);
+}
+
+std::string extract_string(const std::string& line) {
+    size_t start = line.find('"');
+    if (start == std::string::npos) return "";
+    size_t end = line.find('"', start + 1);
+    if (end == std::string::npos) return "";
+    return line.substr(start + 1, end - start - 1);
+}
+
+int extract_int(const std::string& line) {
+    size_t start = line.find(':');
+    if (start == std::string::npos) return 0;
+    std::string num_str = trim(line.substr(start + 1));
+    num_str.erase(std::remove(num_str.begin(), num_str.end(), ','), num_str.end());
+    return std::stoi(num_str);
+}
+
+void load_config(const std::string& filename, std::vector<Backend>& backends, std::string& strategy) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open config file, using defaults" << std::endl;
+        return;
+    }
+
+    std::string line;
+    bool in_backends = false;
+    bool in_backend_obj = false;
+    Backend current_backend;
+
+    while (std::getline(file, line)) {
+        line = trim(line);
+        if (line.find("\"backends\"") != std::string::npos) {
+            in_backends = true;
+            continue;
+        }
+        if (line.find("\"strategy\"") != std::string::npos) {
+            strategy = extract_string(line);
+            continue;
+        }
+        if (in_backends) {
+            if (line == "[") continue;
+            if (line == "{") {
+                in_backend_obj = true;
+                current_backend = Backend();
+                continue;
+            }
+            if (line == "}" || line == "},") {
+                backends.push_back(current_backend);
+                in_backend_obj = false;
+                continue;
+            }
+            if (in_backend_obj) {
+                if (line.find("\"host\"") != std::string::npos) {
+                    current_backend.host = extract_string(line);
+                } else if (line.find("\"port\"") != std::string::npos) {
+                    current_backend.port = extract_int(line);
+                }
+            }
+        }
+    }
+}
+
+int main(int argc, char* argv[]) {
+    std::string config_file = "config.json";
+    if (argc > 1) {
+        config_file = argv[1];
+    }
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         std::cerr << "socket failed" << std::endl;
@@ -50,11 +124,17 @@ int main() {
     }
 
     std::vector<Backend> backends;
-    backends.push_back({"localhost", 8001});
-    backends.push_back({"localhost", 8002});
-    backends.push_back({"localhost", 8003});
+    std::string strategy = "round_robin";
+    load_config(config_file, backends, strategy);
+
+    if (backends.empty()) {
+        backends.push_back({"localhost", 8001});
+        backends.push_back({"localhost", 8002});
+        backends.push_back({"localhost", 8003});
+    }
 
     std::cout << "Server listening on port 8080" << std::endl;
+    std::cout << "Strategy: " << strategy << std::endl;
     std::cout << "Backends: ";
     for (const auto& b : backends) {
         std::cout << b.host << ":" << b.port << " ";
