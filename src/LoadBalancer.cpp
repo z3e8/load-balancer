@@ -1,0 +1,225 @@
+#include "../include/LoadBalancer.h"
+#include "../include/HttpParser.h"
+#include "../include/Logger.h"
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <cstring>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+
+std::string trim(const std::string& s) {
+    size_t start = s.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) return "";
+    size_t end = s.find_last_not_of(" \t\n\r");
+    return s.substr(start, end - start + 1);
+}
+
+std::string extract_string(const std::string& line) {
+    size_t start = line.find('"');
+    if (start == std::string::npos) return "";
+    size_t end = line.find('"', start + 1);
+    if (end == std::string::npos) return "";
+    return line.substr(start + 1, end - start - 1);
+}
+
+int extract_int(const std::string& line) {
+    size_t start = line.find(':');
+    if (start == std::string::npos) return 0;
+    std::string num_str = trim(line.substr(start + 1));
+    num_str.erase(std::remove(num_str.begin(), num_str.end(), ','), num_str.end());
+    return std::stoi(num_str);
+}
+
+LoadBalancer::LoadBalancer(int port) : port(port), server_fd(-1) {
+}
+
+LoadBalancer::~LoadBalancer() {
+    if (server_fd >= 0) {
+        close(server_fd);
+    }
+}
+
+void LoadBalancer::load_config(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open config file, using defaults" << std::endl;
+        pool.add_backend("localhost", 8001);
+        pool.add_backend("localhost", 8002);
+        pool.add_backend("localhost", 8003);
+        return;
+    }
+
+    std::string line;
+    bool in_backends = false;
+    bool in_backend_obj = false;
+    std::string current_host;
+    int current_port = 0;
+
+    while (std::getline(file, line)) {
+        line = trim(line);
+        if (line.find("\"backends\"") != std::string::npos) {
+            in_backends = true;
+            continue;
+        }
+        if (line.find("\"strategy\"") != std::string::npos) {
+            strategy = extract_string(line);
+            continue;
+        }
+        if (in_backends) {
+            if (line == "[") continue;
+            if (line == "{") {
+                in_backend_obj = true;
+                current_host = "";
+                current_port = 0;
+                continue;
+            }
+            if (line == "}" || line == "},") {
+                if (!current_host.empty() && current_port > 0) {
+                    pool.add_backend(current_host, current_port);
+                }
+                in_backend_obj = false;
+                continue;
+            }
+            if (in_backend_obj) {
+                if (line.find("\"host\"") != std::string::npos) {
+                    current_host = extract_string(line);
+                } else if (line.find("\"port\"") != std::string::npos) {
+                    current_port = extract_int(line);
+                }
+            }
+        }
+    }
+
+    if (pool.get_backends().empty()) {
+        pool.add_backend("localhost", 8001);
+        pool.add_backend("localhost", 8002);
+        pool.add_backend("localhost", 8003);
+    }
+}
+
+int LoadBalancer::connect_to_backend(Backend* backend) {
+    int backend_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (backend_fd < 0) {
+        return -1;
+    }
+
+    struct hostent *server = gethostbyname(backend->host.c_str());
+    if (server == nullptr) {
+        close(backend_fd);
+        return -1;
+    }
+
+    struct sockaddr_in backend_addr;
+    backend_addr.sin_family = AF_INET;
+    backend_addr.sin_port = htons(backend->port);
+    memcpy(&backend_addr.sin_addr.s_addr, server->h_addr, server->h_length);
+
+    if (connect(backend_fd, (struct sockaddr *)&backend_addr, sizeof(backend_addr)) < 0) {
+        close(backend_fd);
+        return -1;
+    }
+
+    return backend_fd;
+}
+
+void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) {
+    char buffer[4096] = {0};
+    int bytes_read = read(client_fd, buffer, 4096);
+    if (bytes_read <= 0) {
+        close(client_fd);
+        return;
+    }
+
+    std::string request_str(buffer);
+    HttpRequest req = HttpParser::parse(request_str);
+
+    std::vector<Backend>& backends = pool.get_backends();
+    Backend* selected = nullptr;
+    int backend_fd = -1;
+
+    for (size_t i = 0; i < backends.size(); i++) {
+        selected = pool.select(strategy);
+        if (selected == nullptr) break;
+
+        backend_fd = connect_to_backend(selected);
+        if (backend_fd >= 0) {
+            selected->active_connections++;
+            break;
+        }
+        std::cerr << "Failed to connect to backend " << selected->host << ":" << selected->port << std::endl;
+    }
+
+    if (backend_fd < 0) {
+        std::cerr << "All backends failed" << std::endl;
+        close(client_fd);
+        return;
+    }
+
+    Logger::log_request(inet_ntoa(client_addr.sin_addr), req.method, req.path,
+                       selected->host + ":" + std::to_string(selected->port));
+
+    send(backend_fd, buffer, bytes_read, 0);
+
+    char response_buffer[4096] = {0};
+    int response_bytes = read(backend_fd, response_buffer, 4096);
+    while (response_bytes > 0) {
+        send(client_fd, response_buffer, response_bytes, 0);
+        response_bytes = read(backend_fd, response_buffer, 4096);
+    }
+
+    close(backend_fd);
+    selected->active_connections--;
+    close(client_fd);
+}
+
+void LoadBalancer::run() {
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        std::cerr << "socket failed" << std::endl;
+        return;
+    }
+
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(port);
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        std::cerr << "bind failed" << std::endl;
+        return;
+    }
+
+    if (listen(server_fd, 10) < 0) {
+        std::cerr << "listen failed" << std::endl;
+        return;
+    }
+
+    std::cout << "Server listening on port " << port << std::endl;
+    std::cout << "Strategy: " << strategy << std::endl;
+    std::cout << "Backends: ";
+    for (const auto& b : pool.get_backends()) {
+        std::cout << b.host << ":" << b.port << " ";
+    }
+    std::cout << std::endl;
+
+    while (true) {
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
+        
+        if (client_fd < 0) {
+            continue;
+        }
+
+        handle_client(client_fd, client_addr);
+    }
+}
+
