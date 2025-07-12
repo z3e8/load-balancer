@@ -12,5 +12,6 @@ add_executable(load_balancer
     src/BackendPool.cpp
     src/HttpParser.cpp
     src/Logger.cpp
+    src/ConnectionPool.cpp
 )
 

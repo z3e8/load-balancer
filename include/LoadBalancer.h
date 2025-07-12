@@ -3,6 +3,7 @@
 
 #include <string>
 #include "BackendPool.h"
+#include "ConnectionPool.h"
 
 class LoadBalancer {
 public:
@@ -15,6 +16,7 @@ private:
     int server_fd;
     int port;
     BackendPool pool;
+    ConnectionPool conn_pool;
     std::string strategy;
     void handle_client(int client_fd, struct sockaddr_in client_addr);
     int connect_to_backend(Backend* backend);
