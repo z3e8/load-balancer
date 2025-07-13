@@ -11,6 +11,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <sys/time.h>
 
 std::string trim(const std::string& s) {
     size_t start = s.find_first_not_of(" \t\n\r");
@@ -42,6 +43,7 @@ LoadBalancer::~LoadBalancer() {
     if (server_fd >= 0) {
         close(server_fd);
     }
+    conn_pool.close_all();
 }
 
 void LoadBalancer::load_config(const std::string& filename) {
@@ -103,10 +105,21 @@ void LoadBalancer::load_config(const std::string& filename) {
 }
 
 int LoadBalancer::connect_to_backend(Backend* backend) {
-    int backend_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int backend_fd = conn_pool.get_connection(backend->host, backend->port);
+    if (backend_fd >= 0) {
+        return backend_fd;
+    }
+
+    backend_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (backend_fd < 0) {
         return -1;
     }
+
+    struct timeval timeout;
+    timeout.tv_sec = 5;
+    timeout.tv_usec = 0;
+    setsockopt(backend_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(backend_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
     struct hostent *server = gethostbyname(backend->host.c_str());
     if (server == nullptr) {
@@ -172,7 +185,7 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
         response_bytes = read(backend_fd, response_buffer, 4096);
     }
 
-    close(backend_fd);
+    conn_pool.return_connection(selected->host, selected->port, backend_fd);
     selected->active_connections--;
     close(client_fd);
 }
