@@ -12,6 +12,8 @@
 #include <sstream>
 #include <algorithm>
 #include <sys/time.h>
+#include <chrono>
+#include <thread>
 
 std::string trim(const std::string& s) {
     size_t start = s.find_first_not_of(" \t\n\r");
@@ -36,14 +38,22 @@ int extract_int(const std::string& line) {
     return std::stoi(num_str);
 }
 
-LoadBalancer::LoadBalancer(int port) : port(port), server_fd(-1) {
+LoadBalancer::LoadBalancer(int port) : port(port), server_fd(-1), running(false), health_check_interval(10) {
 }
 
 LoadBalancer::~LoadBalancer() {
+    stop();
     if (server_fd >= 0) {
         close(server_fd);
     }
     conn_pool.close_all();
+}
+
+void LoadBalancer::stop() {
+    running = false;
+    if (health_check_thread.joinable()) {
+        health_check_thread.join();
+    }
 }
 
 void LoadBalancer::load_config(const std::string& filename) {
@@ -223,6 +233,9 @@ void LoadBalancer::run() {
     }
     std::cout << std::endl;
 
+    running = true;
+    health_check_thread = std::thread(&LoadBalancer::health_check_loop, this);
+
     while (true) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
@@ -233,6 +246,47 @@ void LoadBalancer::run() {
         }
 
         handle_client(client_fd, client_addr);
+    }
+}
+
+bool LoadBalancer::check_backend_health(Backend* backend) {
+    int test_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (test_fd < 0) {
+        return false;
+    }
+
+    struct timeval timeout;
+    timeout.tv_sec = 2;
+    timeout.tv_usec = 0;
+    setsockopt(test_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(test_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
+    struct hostent *server = gethostbyname(backend->host.c_str());
+    if (server == nullptr) {
+        close(test_fd);
+        return false;
+    }
+
+    struct sockaddr_in backend_addr;
+    backend_addr.sin_family = AF_INET;
+    backend_addr.sin_port = htons(backend->port);
+    memcpy(&backend_addr.sin_addr.s_addr, server->h_addr, server->h_length);
+
+    bool healthy = connect(test_fd, (struct sockaddr *)&backend_addr, sizeof(backend_addr)) >= 0;
+    close(test_fd);
+    return healthy;
+}
+
+void LoadBalancer::health_check_loop() {
+    while (running) {
+        std::this_thread::sleep_for(std::chrono::seconds(health_check_interval));
+        
+        if (!running) break;
+        
+        for (auto& backend : pool.get_backends()) {
+            bool healthy = check_backend_health(&backend);
+            backend.is_healthy = healthy;
+        }
     }
 }
 
