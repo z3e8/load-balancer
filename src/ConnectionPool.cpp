@@ -5,12 +5,14 @@
 #include <unistd.h>
 #include <cstring>
 #include <sstream>
+#include <mutex>
 
 std::string ConnectionPool::make_key(const std::string& host, int port) {
     return host + ":" + std::to_string(port);
 }
 
 int ConnectionPool::get_connection(const std::string& host, int port) {
+    std::lock_guard<std::mutex> lock(mutex);
     std::string key = make_key(host, port);
     
     if (pool.find(key) != pool.end() && !pool[key].empty()) {
@@ -23,11 +25,13 @@ int ConnectionPool::get_connection(const std::string& host, int port) {
 }
 
 void ConnectionPool::return_connection(const std::string& host, int port, int fd) {
+    std::lock_guard<std::mutex> lock(mutex);
     std::string key = make_key(host, port);
     pool[key].push_back(fd);
 }
 
 void ConnectionPool::close_all() {
+    std::lock_guard<std::mutex> lock(mutex);
     for (auto& pair : pool) {
         for (int fd : pair.second) {
             close(fd);

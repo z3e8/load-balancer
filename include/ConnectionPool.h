@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <mutex>
 
 class ConnectionPool {
 public:
@@ -13,6 +14,7 @@ public:
     
 private:
     std::map<std::string, std::vector<int>> pool;
+    std::mutex mutex;
     std::string make_key(const std::string& host, int port);
 };
 

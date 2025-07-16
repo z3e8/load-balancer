@@ -171,7 +171,7 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
 
         backend_fd = connect_to_backend(selected);
         if (backend_fd >= 0) {
-            selected->active_connections++;
+            pool.increment_connections(selected->host, selected->port);
             break;
         }
         std::cerr << "Failed to connect to backend " << selected->host << ":" << selected->port << std::endl;
@@ -196,7 +196,7 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
     }
 
     conn_pool.return_connection(selected->host, selected->port, backend_fd);
-    selected->active_connections--;
+    pool.decrement_connections(selected->host, selected->port);
     close(client_fd);
 }
 
@@ -285,7 +285,7 @@ void LoadBalancer::health_check_loop() {
         
         for (auto& backend : pool.get_backends()) {
             bool healthy = check_backend_health(&backend);
-            backend.is_healthy = healthy;
+            pool.update_health(backend.host, backend.port, healthy);
         }
     }
 }

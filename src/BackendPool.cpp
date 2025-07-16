@@ -1,10 +1,13 @@
 #include "../include/BackendPool.h"
+#include <mutex>
 
 void BackendPool::add_backend(const std::string& host, int port) {
+    std::lock_guard<std::mutex> lock(mutex);
     backends.push_back({host, port});
 }
 
 Backend* BackendPool::select_round_robin() {
+    std::lock_guard<std::mutex> lock(mutex);
     if (backends.empty()) return nullptr;
     
     int start_idx = round_robin_counter % backends.size();
@@ -19,6 +22,7 @@ Backend* BackendPool::select_round_robin() {
 }
 
 Backend* BackendPool::select_least_connections() {
+    std::lock_guard<std::mutex> lock(mutex);
     if (backends.empty()) return nullptr;
     
     int least_idx = -1;
@@ -37,5 +41,35 @@ Backend* BackendPool::select(const std::string& strategy) {
         return select_least_connections();
     }
     return select_round_robin();
+}
+
+void BackendPool::update_health(const std::string& host, int port, bool healthy) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto& backend : backends) {
+        if (backend.host == host && backend.port == port) {
+            backend.is_healthy = healthy;
+            break;
+        }
+    }
+}
+
+void BackendPool::increment_connections(const std::string& host, int port) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto& backend : backends) {
+        if (backend.host == host && backend.port == port) {
+            backend.active_connections++;
+            break;
+        }
+    }
+}
+
+void BackendPool::decrement_connections(const std::string& host, int port) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto& backend : backends) {
+        if (backend.host == host && backend.port == port) {
+            backend.active_connections--;
+            break;
+        }
+    }
 }
 
