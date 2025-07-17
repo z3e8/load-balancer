@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <chrono>
 #include <thread>
+#include <cerrno>
 
 std::string trim(const std::string& s) {
     size_t start = s.find_first_not_of(" \t\n\r");
@@ -122,6 +123,9 @@ int LoadBalancer::connect_to_backend(Backend* backend) {
 
     backend_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (backend_fd < 0) {
+        std::cerr << "Error creating socket for " << backend->host << ":" << backend->port 
+                  << " (errno: " << errno << "): ";
+        perror("");
         return -1;
     }
 
@@ -133,6 +137,8 @@ int LoadBalancer::connect_to_backend(Backend* backend) {
 
     struct hostent *server = gethostbyname(backend->host.c_str());
     if (server == nullptr) {
+        std::cerr << "Error resolving host " << backend->host << " (errno: " << h_errno << "): ";
+        herror("");
         close(backend_fd);
         return -1;
     }
@@ -143,6 +149,15 @@ int LoadBalancer::connect_to_backend(Backend* backend) {
     memcpy(&backend_addr.sin_addr.s_addr, server->h_addr, server->h_length);
 
     if (connect(backend_fd, (struct sockaddr *)&backend_addr, sizeof(backend_addr)) < 0) {
+        if (errno == ETIMEDOUT || errno == ECONNREFUSED) {
+            std::cerr << "Connection to " << backend->host << ":" << backend->port 
+                      << " failed: " << (errno == ETIMEDOUT ? "timeout" : "connection refused") 
+                      << " (errno: " << errno << ")" << std::endl;
+        } else {
+            std::cerr << "Error connecting to " << backend->host << ":" << backend->port 
+                      << " (errno: " << errno << "): ";
+            perror("");
+        }
         close(backend_fd);
         return -1;
     }
@@ -178,7 +193,8 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
     }
 
     if (backend_fd < 0) {
-        std::cerr << "All backends failed" << std::endl;
+        std::cerr << "All backends failed for request from " << inet_ntoa(client_addr.sin_addr) 
+                  << ", closing client connection" << std::endl;
         close(client_fd);
         return;
     }
@@ -203,7 +219,8 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
 void LoadBalancer::run() {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        std::cerr << "socket failed" << std::endl;
+        std::cerr << "Error creating server socket (errno: " << errno << "): ";
+        perror("");
         return;
     }
 
@@ -216,12 +233,14 @@ void LoadBalancer::run() {
     address.sin_port = htons(port);
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        std::cerr << "bind failed" << std::endl;
+        std::cerr << "Error binding to port " << port << " (errno: " << errno << "): ";
+        perror("");
         return;
     }
 
     if (listen(server_fd, 10) < 0) {
-        std::cerr << "listen failed" << std::endl;
+        std::cerr << "Error listening on socket (errno: " << errno << "): ";
+        perror("");
         return;
     }
 
@@ -252,6 +271,8 @@ void LoadBalancer::run() {
 bool LoadBalancer::check_backend_health(Backend* backend) {
     int test_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (test_fd < 0) {
+        std::cerr << "Health check: socket creation failed for " << backend->host << ":" << backend->port 
+                  << " (errno: " << errno << ")" << std::endl;
         return false;
     }
 
@@ -263,6 +284,8 @@ bool LoadBalancer::check_backend_health(Backend* backend) {
 
     struct hostent *server = gethostbyname(backend->host.c_str());
     if (server == nullptr) {
+        std::cerr << "Health check: host resolution failed for " << backend->host 
+                  << " (errno: " << h_errno << ")" << std::endl;
         close(test_fd);
         return false;
     }
@@ -273,6 +296,16 @@ bool LoadBalancer::check_backend_health(Backend* backend) {
     memcpy(&backend_addr.sin_addr.s_addr, server->h_addr, server->h_length);
 
     bool healthy = connect(test_fd, (struct sockaddr *)&backend_addr, sizeof(backend_addr)) >= 0;
+    if (!healthy) {
+        if (errno == ETIMEDOUT) {
+            std::cerr << "Health check: " << backend->host << ":" << backend->port << " timeout" << std::endl;
+        } else if (errno == ECONNREFUSED) {
+            std::cerr << "Health check: " << backend->host << ":" << backend->port << " connection refused" << std::endl;
+        } else {
+            std::cerr << "Health check: " << backend->host << ":" << backend->port 
+                      << " failed (errno: " << errno << ")" << std::endl;
+        }
+    }
     close(test_fd);
     return healthy;
 }
