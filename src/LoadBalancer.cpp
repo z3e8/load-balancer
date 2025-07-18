@@ -15,6 +15,16 @@
 #include <chrono>
 #include <thread>
 #include <cerrno>
+#include <csignal>
+#include <atomic>
+
+static LoadBalancer* g_load_balancer = nullptr;
+
+void signal_handler(int sig) {
+    if (g_load_balancer) {
+        g_load_balancer->stop();
+    }
+}
 
 std::string trim(const std::string& s) {
     size_t start = s.find_first_not_of(" \t\n\r");
@@ -252,19 +262,30 @@ void LoadBalancer::run() {
     }
     std::cout << std::endl;
 
+    g_load_balancer = this;
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
     running = true;
     health_check_thread = std::thread(&LoadBalancer::health_check_loop, this);
 
-    while (true) {
+    while (running) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
         
         if (client_fd < 0) {
+            if (!running) break;
             continue;
         }
 
         handle_client(client_fd, client_addr);
+    }
+
+    std::cout << "Shutting down gracefully..." << std::endl;
+    stop();
+    if (server_fd >= 0) {
+        close(server_fd);
     }
 }
 
