@@ -14,10 +14,11 @@ Backend* BackendPool::select_round_robin() {
     for (size_t i = 0; i < backends.size(); i++) {
         int idx = (start_idx + i) % backends.size();
         if (backends[idx].is_healthy) {
-            round_robin_counter++;
+            round_robin_counter = (round_robin_counter + 1) % (backends.size() * 2);
             return &backends[idx];
         }
     }
+    round_robin_counter = (round_robin_counter + 1) % (backends.size() * 2);
     return nullptr;
 }
 
