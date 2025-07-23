@@ -4,10 +4,11 @@
 #include <iomanip>
 
 void Logger::log_request(const std::string& client_ip, const std::string& method,
-                         const std::string& path, const std::string& backend) {
+                         const std::string& path, const std::string& backend, int request_num) {
     std::time_t now = std::time(nullptr);
     std::tm* timeinfo = std::localtime(&now);
     std::cout << std::put_time(timeinfo, "%Y-%m-%d %H:%M:%S") << " "
+              << "[" << request_num << "] "
               << client_ip << " "
               << method << " " << path << " -> "
               << backend << std::endl;

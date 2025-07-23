@@ -49,7 +49,7 @@ int extract_int(const std::string& line) {
     return std::stoi(num_str);
 }
 
-LoadBalancer::LoadBalancer(int port) : port(port), server_fd(-1), running(false), health_check_interval(10) {
+LoadBalancer::LoadBalancer(int port) : port(port), server_fd(-1), running(false), request_count(0), health_check_interval(10) {
 }
 
 LoadBalancer::~LoadBalancer() {
@@ -183,6 +183,7 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
         return;
     }
 
+    request_count++;
     std::string request_str(buffer);
     HttpRequest req = HttpParser::parse(request_str);
 
@@ -210,7 +211,7 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
     }
 
     Logger::log_request(inet_ntoa(client_addr.sin_addr), req.method, req.path,
-                       selected->host + ":" + std::to_string(selected->port));
+                       selected->host + ":" + std::to_string(selected->port), request_count.load());
 
     send(backend_fd, buffer, bytes_read, 0);
 
@@ -283,6 +284,7 @@ void LoadBalancer::run() {
     }
 
     std::cout << "Shutting down gracefully..." << std::endl;
+    std::cout << "Total requests processed: " << request_count.load() << std::endl;
     stop();
     if (server_fd >= 0) {
         close(server_fd);
