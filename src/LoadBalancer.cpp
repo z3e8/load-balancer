@@ -217,12 +217,22 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
 
     char response_buffer[4096] = {0};
     int response_bytes = read(backend_fd, response_buffer, 4096);
+    bool error_occurred = false;
     while (response_bytes > 0) {
         send(client_fd, response_buffer, response_bytes, 0);
         response_bytes = read(backend_fd, response_buffer, 4096);
+        if (response_bytes < 0) {
+            error_occurred = true;
+            break;
+        }
     }
 
-    conn_pool.return_connection(selected->host, selected->port, backend_fd);
+    if (error_occurred) {
+        std::cerr << "Error reading response from backend, closing connection" << std::endl;
+        close(backend_fd);
+    } else {
+        conn_pool.return_connection(selected->host, selected->port, backend_fd);
+    }
     pool.decrement_connections(selected->host, selected->port);
     close(client_fd);
 }
