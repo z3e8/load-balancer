@@ -12,6 +12,9 @@ struct Backend {
     bool is_healthy = true;
 };
 
+// Manages backend servers and selection algorithms
+// Round-robin: cycles through backends in order
+// Least-connections: picks backend with fewest active connections
 class BackendPool {
 public:
     void add_backend(const std::string& host, int port);

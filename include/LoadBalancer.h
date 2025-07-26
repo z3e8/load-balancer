@@ -7,6 +7,8 @@
 #include "BackendPool.h"
 #include "ConnectionPool.h"
 
+// Main load balancer class - handles incoming connections, forwards to backends
+// Manages health checks, connection pooling, and request routing
 class LoadBalancer {
 public:
     LoadBalancer(int port);

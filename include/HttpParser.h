@@ -10,6 +10,7 @@ struct HttpRequest {
     std::unordered_map<std::string, std::string> headers;
 };
 
+// Parses HTTP requests - extracts method, path, and headers
 class HttpParser {
 public:
     static HttpRequest parse(const std::string& request_str);

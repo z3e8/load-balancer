@@ -6,6 +6,8 @@
 #include <map>
 #include <mutex>
 
+// Reuses backend connections to avoid overhead of creating new sockets
+// Maintains a pool of open connections per backend
 class ConnectionPool {
 public:
     int get_connection(const std::string& host, int port);
