@@ -349,7 +349,15 @@ void LoadBalancer::health_check_loop() {
         
         if (!running) break;
         
-        for (auto& backend : pool.get_backends()) {
+        std::vector<Backend> backends_copy;
+        {
+            std::vector<Backend>& backends = pool.get_backends();
+            for (const auto& b : backends) {
+                backends_copy.push_back(b);
+            }
+        }
+        
+        for (auto& backend : backends_copy) {
             bool healthy = check_backend_health(&backend);
             pool.update_health(backend.host, backend.port, healthy);
         }
