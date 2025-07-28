@@ -1,0 +1,10 @@
+{
+  "backends": [
+    {"host": "backend1", "port": 8001},
+    {"host": "backend2", "port": 8002},
+    {"host": "backend3", "port": 8003}
+  ],
+  "strategy": "round_robin",
+  "health_check_interval": 10
+}
+

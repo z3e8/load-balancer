@@ -18,7 +18,7 @@ if __name__ == '__main__':
         sys.exit(1)
     
     port = int(sys.argv[1])
-    server = HTTPServer(('localhost', port), BackendHandler)
+    server = HTTPServer(('0.0.0.0', port), BackendHandler)
     print(f"Backend server running on port {port}")
     server.serve_forever()
 

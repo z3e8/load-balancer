@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  backend1:
+    image: python:3.9
+    command: python3 /app/backend_server.py 8001
+    volumes:
+      - ./backend_server.py:/app/backend_server.py
+    ports:
+      - "8001:8001"
+    networks:
+      - lb-network
+
+  backend2:
+    image: python:3.9
+    command: python3 /app/backend_server.py 8002
+    volumes:
+      - ./backend_server.py:/app/backend_server.py
+    ports:
+      - "8002:8002"
+    networks:
+      - lb-network
+
+  backend3:
+    image: python:3.9
+    command: python3 /app/backend_server.py 8003
+    volumes:
+      - ./backend_server.py:/app/backend_server.py
+    ports:
+      - "8003:8003"
+    networks:
+      - lb-network
+
+  load-balancer:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.docker.json:/app/config.json
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+    networks:
+      - lb-network
+
+networks:
+  lb-network:
+    driver: bridge
+
