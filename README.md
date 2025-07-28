@@ -20,6 +20,15 @@ cmake ..
 make
 ```
 
+## Docker
+
+Build and run with Docker:
+
+```bash
+docker build -t load-balancer .
+docker run -p 8080:8080 -v $(pwd)/config.json:/app/config.json load-balancer
+```
+
 ## Run Demo
 
 1. Start backend servers:
