@@ -176,6 +176,8 @@ int LoadBalancer::connect_to_backend(Backend* backend) {
 }
 
 void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) {
+    auto start = std::chrono::steady_clock::now();
+    
     char buffer[4096] = {0};
     int bytes_read = read(client_fd, buffer, 4096);
     if (bytes_read <= 0) {
@@ -210,9 +212,6 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
         return;
     }
 
-    Logger::log_request(inet_ntoa(client_addr.sin_addr), req.method, req.path,
-                       selected->host + ":" + std::to_string(selected->port), request_count.load());
-
     send(backend_fd, buffer, bytes_read, 0);
 
     char response_buffer[4096] = {0};
@@ -226,6 +225,14 @@ void LoadBalancer::handle_client(int client_fd, struct sockaddr_in client_addr) 
             break;
         }
     }
+
+    auto end = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    double latency_ms = duration.count() / 1000.0;
+
+    Logger::log_request(inet_ntoa(client_addr.sin_addr), req.method, req.path,
+                       selected->host + ":" + std::to_string(selected->port), request_count.load(),
+                       latency_ms);
 
     if (error_occurred) {
         std::cerr << "Error reading response from backend, closing connection" << std::endl;
